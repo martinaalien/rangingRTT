@@ -77,6 +77,8 @@ static const nrf_gfx_font_desc_t * p_font = &orkney_8ptFontInfo;
 static const nrf_lcd_t * p_lcd = &nrf_lcd_ili9341;
 
 static char distributionNumbers[5];
+static char buf[5];
+static int numClock;
 
 /**
  * @brief Initializes the radio
@@ -84,7 +86,8 @@ static char distributionNumbers[5];
 void nrf_radio_init(void)
 {
     NRF_RADIO->SHORTS = (RADIO_SHORTS_READY_START_Enabled << RADIO_SHORTS_READY_START_Pos) |
-                        (RADIO_SHORTS_END_DISABLE_Enabled << RADIO_SHORTS_END_DISABLE_Pos);
+                        (RADIO_SHORTS_END_DISABLE_Enabled << RADIO_SHORTS_END_DISABLE_Pos) | 
+                        (RADIO_SHORTS_DISABLED_TXEN_Enabled << RADIO_SHORTS_DISABLED_TXEN_Pos);
                     
     NRF_RADIO->TIFS = 210;
             
@@ -145,9 +148,12 @@ void nrf_ppi_config (void)
     NRF_PPI->CH[6].EEP = (uint32_t)(&NRF_RADIO->EVENTS_ADDRESS); 
 
     NRF_PPI->CH[7].TEP = (uint32_t)(&NRF_TIMER0->TASKS_START);
-    NRF_PPI->CH[7].EEP = (uint32_t)(&NRF_RADIO->EVENTS_ADDRESS);
+    NRF_PPI->CH[7].EEP = (uint32_t)(&NRF_RADIO->EVENTS_END);
  
     NRF_PPI->CHENSET =  (1 << 6) | (1 << 7);
+
+    NRF_TIMER0->TASKS_STOP = 1;
+    NRF_TIMER0->TASKS_CLEAR = 1;
 }
 
 
@@ -221,7 +227,7 @@ int main(void)
     nrf_gfx_point_t text_start = NRF_GFX_POINT(5, nrf_gfx_height_get(p_lcd) - 250);
     
     screen_clear();
-  
+
     while (true)
     { 
         while (dbptr < NUMBER_OF_MEASUREMENTS)
@@ -235,9 +241,6 @@ int main(void)
             /* Copy the tx packet counter into the payload */
             test_frame[2]=(tx_pkt_counter & 0x0000FF00) >> 8;
             test_frame[3]=(tx_pkt_counter & 0x000000FF);
-            
-            NRF_TIMER0->TASKS_STOP = 1;
-            NRF_TIMER0->TASKS_CLEAR = 1;
             
             /* Start Tx */
             NRF_RADIO->TASKS_TXEN = 0x1;
@@ -268,11 +271,9 @@ int main(void)
             {
                 txcntw = 0;
                 if(rx_timeouts > 10)
-                    // PER>=20pct
                     highper = 1;
                 else
-                    highper=0;
-                
+                    highper = 0;
                 rx_timeouts = 0;
             }
             
@@ -287,11 +288,14 @@ int main(void)
             
             /* Wait for response or timeout */
             timeout=0; 
-            while ((NRF_RADIO->EVENTS_DISABLED == 0) && (timeout<2048) )
+            while ((NRF_RADIO->EVENTS_DISABLED == 0) && (timeout<2048))
             { 
                     timeout++;
             }
-            
+
+            NRF_TIMER0->TASKS_STOP = 1;
+            NRF_TIMER0->TASKS_CLEAR = 1;
+
             /* Now, did we time out? */
             if(timeout>=2048)
             {
@@ -324,21 +328,23 @@ int main(void)
                     else
                     {
                         /* Packet is good, update stats */
-                        NRF_TIMER0->TASKS_STOP = 1;
+                        
                         telp = NRF_TIMER0->CC[0];  
-                        binNum = telp - 4613; /* Magic number to trim away dwell time in device B, etc */
+                        binNum = telp - 4030; /* Magic number to trim away dwell time in device B, etc */
                         
                         if((binNum >= 0) && (binNum < NUM_BINS))
                                 bincnt[binNum]++;
-                        
                         dbptr++;
-                        NRF_TIMER0->TASKS_CLEAR = 1;
                     }
                 }
             }
             NRF_RADIO->EVENTS_DISABLED = 0;
         }
         
+        NRF_RADIO->TASKS_STOP = 1;
+        NRF_RADIO->TASKS_DISABLE = 1;
+        while(NRF_RADIO->EVENTS_DISABLED == 0);
+
         /* Loading measurements in to database */
         for(j = 0; j < NUM_BINS; j++)
         {
@@ -352,11 +358,10 @@ int main(void)
         nrf_lcd_t const * p_instance = p_lcd;
         uint16_t x = p_point->x;
         uint16_t y = p_point->y;
-        
-        char buf[5] = "";
+
         gcvt(calc_dist(), 5, buf);
         
-        int numClock = (int) calc_dist();
+        numClock = (int) calc_dist();
 
         screen_clear();
         
@@ -365,7 +370,18 @@ int main(void)
         {
             write_character(p_instance, p_font, (uint8_t) buf[i], &x, y - 40, 0);
         }
+
+        // memset(buf, 0, sizeof buf);
+
+        // sprintf(buf, "%d", (int) rx_timeouts);
         
+        // for(i = 0; i < 5; i++)
+        // {
+        //     write_character(p_instance, p_font, (uint8_t) buf[i], &x, y, 0);
+        // }
+
+        // rx_timeouts = 0;
+
         /* Print distribution from database */
         for(i = numClock - 5; i < numClock + 6; i++)
         {  
