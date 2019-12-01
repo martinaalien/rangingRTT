@@ -19,7 +19,7 @@ The radio_A and radio_B folders contains the code for each of the two nRF52840 D
 
 
 ## Current State
-The project is still under development. Currently, the algorithm calculates the clock cycles the packets use between the boards. If the measurements where linear over distance, the conversion to meters would be fairly simple, but the measurements does not give linear results (yet). 
+The project is still under development. Currently, the algorithm calculates the clock cycles the packets use between the boards. 
 
 ## License
 MIT License Copyright (c) 2019 Martin Aalien
